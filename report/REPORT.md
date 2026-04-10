@@ -96,17 +96,47 @@ Chạy `ChunkingStrategyComparator().compare()` trên 2-3 tài liệu:
 
 ### Strategy Của Tôi
 
-**Loại:** [FixedSizeChunker / SentenceChunker / RecursiveChunker / custom strategy]
+**Loại:** SentenceChunker
 
 **Mô tả cách hoạt động:**
-> *Viết 3-4 câu: strategy chunk thế nào? Dựa trên dấu hiệu gì?*
+> Thuật toán chia văn bản thành các câu riêng biệt dựa trên các dấu ngắt câu phổ biến (dấu chấm ., chấm than !, hỏi chấm ? và dấu xuống dòng \n). Khác với cắt theo kích thước cứng (Fixed-size), thuật toán này sử dụng Regular Expression (RegEx) để nhận diện chính xác điểm kết thúc câu. Sau đó, nó sẽ gom nhóm các câu lại với nhau sao cho mỗi chunk không vượt quá số lượng câu tối đa cho phép (max_sentences_per_chunk = 3), đảm bảo văn bản không bị đứt gãy giữa chừng.
 
 **Tại sao tôi chọn strategy này cho domain nhóm?**
-> *Viết 2-3 câu: domain có pattern gì mà strategy khai thác?*
+> Đặc thù của văn bản pháp luật (như Luật Đất đai, Luật Giao thông) là các câu văn thường rất dài, phức tạp và chứa đựng một quy định logic trọn vẹn (ví dụ: Hành vi A + Điều kiện B = Mức phạt C). Nếu dùng Fixed-size, một điều luật có thể bị cắt ngang (ví dụ: chunk 1 chứa hành vi, chunk 2 chứa mức phạt), khiến RAG mất ngữ cảnh khi retrieve. SentenceChunker giúp giữ nguyên vẹn cấu trúc ngữ pháp và logic pháp lý của từng điểm/khoản luật, giúp AI lấy được ngữ cảnh chính xác 100%.
 
 **Code snippet (nếu custom):**
 ```python
-# Paste implementation here
+class SentenceChunker:
+    def __init__(self, max_sentences_per_chunk: int = 3) -> None:
+        self.max_sentences_per_chunk = max(1, max_sentences_per_chunk)
+
+    def chunk(self, text: str) -> list[str]:
+        if not text.strip():
+            return []
+            
+        # Tách câu dựa trên dấu chấm, chấm than, hỏi chấm, và xuống dòng
+        parts = re.split(r'(\.\s+|\!\s+|\?\s+|\.\n)', text)
+        sentences = []
+        current_sentence = ""
+        
+        for part in parts:
+            current_sentence += part
+            if re.match(r'^(\.\s+|\!\s+|\?\s+|\.\n)$', part):
+                sentences.append(current_sentence.strip())
+                current_sentence = ""
+                
+        if current_sentence.strip():
+            sentences.append(current_sentence.strip())
+            
+        # Gom câu thành chunks theo giới hạn
+        chunks = []
+        for i in range(0, len(sentences), self.max_sentences_per_chunk):
+            chunk = " ".join(sentences[i:i + self.max_sentences_per_chunk]).strip()
+            if chunk:
+                chunks.append(chunk)
+                
+        return chunks
+
 ```
 
 ### So Sánh: Strategy của tôi vs Baseline
