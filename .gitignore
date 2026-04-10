@@ -22,3 +22,6 @@ law/
 promt.txt
 code.py
 code.txt
+generate_report_data.py
+report_data.json
+.gitignore
