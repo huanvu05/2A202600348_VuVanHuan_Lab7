@@ -48,7 +48,34 @@ class SentenceChunker:
 
     def chunk(self, text: str) -> list[str]:
         # TODO: split into sentences, group into chunks
-        raise NotImplementedError("Implement SentenceChunker.chunk")
+        if not text.strip():
+            return []
+            
+        # Tách câu dựa trên dấu chấm, chấm than, hỏi chấm, và xuống dòng. 
+        # Sử dụng regex để tách và giữ lại dấu kết thúc câu trong các part.
+        parts = re.split(r'(\.\s+|\!\s+|\?\s+|\.\n)', text)
+        sentences = []
+        current_sentence = ""
+        
+        for part in parts:
+            current_sentence += part
+            # Nếu part trùng với pattern dấu ngắt câu -> kết thúc một câu hoàn chỉnh
+            if re.match(r'^(\.\s+|\!\s+|\?\s+|\.\n)$', part):
+                sentences.append(current_sentence.strip())
+                current_sentence = ""
+                
+        # Xử lý đoạn còn dư cuối cùng nếu không có dấu ngắt
+        if current_sentence.strip():
+            sentences.append(current_sentence.strip())
+            
+        # Gộp các câu thành từng chunk dựa vào giới hạn max_sentences_per_chunk
+        chunks = []
+        for i in range(0, len(sentences), self.max_sentences_per_chunk):
+            chunk = " ".join(sentences[i:i + self.max_sentences_per_chunk]).strip()
+            if chunk:
+                chunks.append(chunk)
+                
+        return chunks
 
 
 class RecursiveChunker:
@@ -67,11 +94,54 @@ class RecursiveChunker:
 
     def chunk(self, text: str) -> list[str]:
         # TODO: implement recursive splitting strategy
-        raise NotImplementedError("Implement RecursiveChunker.chunk")
+        if not text:
+            return []
+        # Gọi hàm đệ quy để tách văn bản với danh sách separator ưu tiên
+        return self._split(text, self.separators)
 
     def _split(self, current_text: str, remaining_separators: list[str]) -> list[str]:
         # TODO: recursive helper used by RecursiveChunker.chunk
-        raise NotImplementedError("Implement RecursiveChunker._split")
+        # Base case: text đã nằm trong giới hạn cho phép
+        if len(current_text) <= self.chunk_size:
+            return [current_text]
+            
+        # Tìm separator đầu tiên có tồn tại trong đoạn văn bản hiện tại
+        sep = ""
+        next_seps = remaining_separators
+        for i, s in enumerate(remaining_separators):
+            if s == "" or s in current_text:
+                sep = s
+                next_seps = remaining_separators[i + 1:]
+                break
+                
+        # Cắt chuỗi theo separator tìm được
+        splits = current_text.split(sep) if sep else list(current_text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for split in splits:
+            # Nếu một mảnh đã cắt vẫn lớn hơn chunk_size -> Đệ quy dùng mảng separator tiếp theo
+            if len(split) > self.chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = ""
+                chunks.extend(self._split(split, next_seps))
+            else:
+                # Nếu có thể ghép thêm vào chunk hiện tại thì ghép
+                new_len = len(current_chunk) + len(sep) + len(split) if current_chunk else len(split)
+                if new_len <= self.chunk_size:
+                    current_chunk = current_chunk + sep + split if current_chunk else split
+                else:
+                    # Nếu vượt quá, lưu chunk hiện tại và khởi tạo chunk mới
+                    chunks.append(current_chunk)
+                    current_chunk = split
+                    
+        # Lưu chunk cuối cùng nếu có
+        if current_chunk:
+            chunks.append(current_chunk)
+            
+        return chunks
 
 
 def _dot(a: list[float], b: list[float]) -> float:
@@ -87,7 +157,18 @@ def compute_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     Returns 0.0 if either vector has zero magnitude.
     """
     # TODO: implement cosine similarity formula
-    raise NotImplementedError("Implement compute_similarity")
+    # Tính tích vô hướng (dot product)
+    dot_product = _dot(vec_a, vec_b)
+    
+    # Tính độ lớn (magnitude) của từng vector
+    mag_a = math.sqrt(_dot(vec_a, vec_a))
+    mag_b = math.sqrt(_dot(vec_b, vec_b))
+    
+    # Xử lý edge case: vector có độ lớn = 0
+    if mag_a == 0 or mag_b == 0:
+        return 0.0
+        
+    return dot_product / (mag_a * mag_b)
 
 
 class ChunkingStrategyComparator:
@@ -95,4 +176,23 @@ class ChunkingStrategyComparator:
 
     def compare(self, text: str, chunk_size: int = 200) -> dict:
         # TODO: call each chunker, compute stats, return comparison dict
-        raise NotImplementedError("Implement ChunkingStrategyComparator.compare")
+        # Hàm tính toán thống kê (số lượng chunk, độ dài trung bình)
+        def get_stats(chunks: list[str]) -> dict:
+            count = len(chunks)
+            avg_length = sum(len(c) for c in chunks) / count if count > 0 else 0
+            return {
+                "count": count,
+                "avg_length": avg_length,
+                "chunks": chunks
+            }
+            
+        # Áp dụng 3 chiến lược chunking
+        fixed = FixedSizeChunker(chunk_size=chunk_size, overlap=20).chunk(text)
+        sentence = SentenceChunker(max_sentences_per_chunk=3).chunk(text)
+        recursive = RecursiveChunker(chunk_size=chunk_size).chunk(text)
+        
+        return {
+            "fixed_size": get_stats(fixed),
+            "by_sentences": get_stats(sentence),
+            "recursive": get_stats(recursive)
+        }
